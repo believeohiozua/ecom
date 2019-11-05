@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.shortcuts import render, get_object_or_404, redirect, reverse
 from django.views.generic import View, ListView, DetailView, CreateView, UpdateView, DeleteView
-from .models import Item, OrderItem, Order, BillingAddress, Payment,Coupon, Refund
+from .models import Item, OrderItem, Order, Address, Payment,Coupon, Refund
 from django.utils import timezone
 from .forms import CheckoutForm, CouponForm, RefundForm
 # Create your views here.  
@@ -20,6 +20,15 @@ import string
 def create_ref_code():
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=20))
 
+
+def is_valid_form(values):
+    valid = True
+    for field in values:
+        if field == "":
+            valid=False
+    return valid
+
+
 class CheckoutView(View):
     def get(self, *args, **kwargs):
         try:
@@ -31,7 +40,26 @@ class CheckoutView(View):
                 "order": order,
                 'DISPLAY_COUPON_FORM': True
             }   
-            return render(self.request, 'checkout.html', context)      
+
+            shipping_address_qs = Address.objects.filter(
+                user=self.request.user,
+                address_type='S',
+                default = True
+            )
+            if shipping_address_qs.exists():
+                context.update({"default_shipping_address": shipping_address_qs[0]})
+
+            #billing
+            billing_address_qs = Address.objects.filter(
+                user=self.request.user,
+                address_type='B',
+                default = True
+            )
+            if billing_address_qs.exists():
+                context.update({"default_billing_address": billing_address_qs[0]})
+
+            return render(self.request, 'checkout.html', context)
+
         except ObjectDoesNotExist:
             message.info(self.request, "You do not have an active order")
             return redirect("core:check-out")        
@@ -42,41 +70,117 @@ class CheckoutView(View):
         try:
             order = Order.objects.get(user=self.request.user, ordered=False) 
             if form.is_valid(): 
-                street_address = form.cleaned_data.get('street_address')
-                apartment_address = form.cleaned_data.get('apartment_address')
-                country = form.cleaned_data.get('country')
-                zip = form.cleaned_data.get('zip')
-                # TODO add functionality for these fields 
-                # same_shipping_address = from.cleaned_data.get('same_shipping_address')
-                # save_info = from.cleaned_data.get('save_info')
-                payment_option = form.cleaned_data.get('payment_option')     
-                billing_address = BillingAddress(
-                    user = self.request.user,
-                    street_address =street_address,  
-                    apartment_address =apartment_address,
-                    country =country,
-                    zip =zip,
-                )
-                billing_address.save()     
-                order.billing_address = billing_address
+
+                use_default_shipping = form.cleaned_data.get('use_default_shipping')
+                if use_default_shipping:
+                    address_qs = Address.objects.filter(
+                        user=self.request.user,
+                        address_type='S',
+                        default = True
+                    )
+                    if address_qs.exists():
+                        shipping_address=address_qs[0]
+                        order.shipping_address=shipping_address
+                        order.save()
+                    else:
+                        messages.info(self.request,"no default shipping address avalibel")
+                        return redirect('core:check-out')
+            else:
+                print("User is entering a new address")
+                shipping_address1 = form.cleaned_data.get('shipping_address')
+                shipping_address2 = form.cleaned_data.get('shipping_address2')
+                shipping_country = form.cleaned_data.get('shipping_country')
+                shipping_zip = form.cleaned_data.get('shipping_zip')
+                
+                if is_valid_form([shipping_address1,shipping_country,shipping_zip]):
+                    shipping_address = Address(
+                        user = self.request.user,
+                        street_address =shipping_address1,  
+                        apartment_address =shipping_address2,
+                        country =shipping_country,
+                        zip =shipping_zip,
+                        address_type = 'S'
+                    )
+                    shipping_address.save()  
+                    order.shipping_address=shipping_address
+                    order.save()
+
+                    set_default_shipping = form.cleaned_data.get('set_default_shipping')
+                    if set_default_shipping:
+                        shipping_address.default=True
+                        shipping_address.save()
+
+                
+                else:
+                    messages.info(self.request, "Please fill in the required shipping address fields")
+        
+        use_default_billing = form.cleaned_data.get(
+            'use_default_billing')
+        same_billing_address = form.cleaned_data.get(
+            'same_default_billing')
+            if same_billing_address:
+                billing_address = shipping_address
+                billing_address.pk = None
+                billing_address.save()
+                billing_address.address_type="B"
+                billing_address.save()
+                order.billing_address=billing_address
                 order.save()
 
-                if payment_option == 'S':
-                    return redirect('core:payment', payment_option='stripe')
-                elif payment_option == 'P':
-                    return redirect('core:payment', payment_option='paypal')
+
+            elif use_default_billing:
+                print("Using default billing address")
+                address_qs = Address.objects.filter(
+                    user=self.request.user,
+                    address_type='B',
+                    default = True
+                )
+                if address_qs.exists():
+                    billing_address=address_qs[0]
                 else:
-                    messages.warning(self.request, 'invalid payment option selected')
+                    messages.info(self.request,"no default billing address avalibel")
                     return redirect('core:check-out')
+        else:
+            print("User is entering a new address")
+            billing_address1 = form.cleaned_data.get('billing_address')
+            billing_address2 = form.cleaned_data.get('billing_address2')
+            billing_country = form.cleaned_data.get('billing_country')
+            billing_zip = form.cleaned_data.get('billing_zip')
+            
+            if is_valid_form([billing_address1,billing_country,billing_zip]):
+                billing_address = Address(
+                    user = self.request.user,
+                    street_address =billing_address1,  
+                    apartment_address =billing_address2,
+                    country =billing_country,
+                    zip =billing_zip,
+                    address_type = 'S'
+                )
+                billing_address.save()  
+                order.billing_address=billing_address
+                order.save()
 
+                set_default_billing = form.cleaned_data.get('set_default_billing')
+                if set_default_billing:
+                    billing_address.default=True
+                    billing_address.save()
 
-                # TODO add a redirect to the selected payment option
-                return redirect('core:check-out')
-            messages.warning(self.request, 'Failed checkout')
-            return redirect('core:check-out')    
-        except ObjectDoesNotExist:
-            messages.warning(self.request, "You do not have an active order")
-            return redirect("core:order-summary")     
+            
+            else:
+                messages.info(self.request, "Please fill in the required billing address fields")
+                
+        payment_option = form.cleaned_data.get('payment_option')  
+
+        if payment_option == 'S':
+            return redirect('core:payment', payment_option='stripe')
+        elif payment_option == 'P':
+            return redirect('core:payment', payment_option='paypal')
+        else:
+            messages.warning(self.request, 'invalid payment option selected')
+            return redirect('core:check-out')       
+    except ObjectDoesNotExist:
+        messages.warning(self.request, "You do not have an active order")
+        return redirect("core:order-summary")     
 
 class PaymentView(View): 
     def get(self, *args, **kwargs):       
