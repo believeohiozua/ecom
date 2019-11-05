@@ -2,7 +2,7 @@ from django import forms
 from django_countries.fields import CountryField
 from django_countries.widgets import CountrySelectWidget
 
-
+ 
 countries = [    
         ('Male', 'Male'),
         ('Female', 'Female'),    
@@ -48,3 +48,4 @@ class CouponForm(forms.Form):
 class RefundForm(forms.Form):
     ref_code = forms.CharField()
     message = forms.TextInput()
+    email = forms.EmailField()

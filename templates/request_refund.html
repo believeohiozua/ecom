@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% load staticfiles %}
+{% load crispy_forms_tag %}
+{% block content %}
+<!-- <h2>Here is the list of Items</h2>
+
+{% for item in items %}
+{{item}}
+{% endfor %}
+
+ -->
+
+
+
+
+<!--Main layout-->
+<main>
+    <div class="container">
+        <div class="table-responsive text-nowrap">
+            <h2>Request Refund</h2>
+            <form method="POST">
+                {% csrf_token %}
+                {{ form|crispy }}
+                <button type="submit" class="btn btn-primary">Submit</button>
+
+            </form>
+
+        </div>
+
+
+
+    </div>
+</main>
+<!--Main layout-->
+
+
+
+
+{% endblock content %}
